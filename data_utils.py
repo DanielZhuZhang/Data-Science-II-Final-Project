@@ -1,63 +1,87 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.preprocessing import LabelEncoder
 import os
+from sklearn.preprocessing import LabelEncoder
 
 def load_and_preprocess(filepath):
     """
-    Loads the dataset and performs necessary preprocessing:
-    - Drops missing values
-    - Strips whitespace from column names (Critical fix)
-    - Encodes categorical variables
+    Loads dataset, handles missing values, and encodes categorical data.
     """
     if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Could not find {filepath}. Please download it first.")
+        # Fallback checks
+        possible_files = ['gym_members_exercise_tracking.csv', 'data.csv']
+        found = False
+        for f in possible_files:
+            if os.path.exists(f):
+                filepath = f
+                found = True
+                break
+        if not found:
+            raise FileNotFoundError(f"Could not find {filepath}. Please ensure the CSV is in the folder.")
 
+    print(f"Loading data from: {filepath}")
     df = pd.read_csv(filepath)
     
-    # 1. CLEANING: Strip whitespace from column headers to match our list
+    # Clean headers
     df.columns = df.columns.str.strip()
     
-    # Drop rows with missing values
+    # Drop missing
     df.dropna(inplace=True)
-
-    # Create a copy for encoding
+    
+    # Create encoded version
     df_encoded = df.copy()
     encoders = {}
-
-    # The columns we expect to be text that need converting to numbers
+    
+    # Categorical columns to encode
     categorical_cols = [
-        'Workout_Type', 
-        'Gender', 
-        'meal_type', 
-        'cooking_method', 
-        'diet_type', 
-        'Experience_Level',
-        'meal_name'
+        'Workout_Type', 'Gender', 'meal_type', 'cooking_method', 
+        'diet_type', 'Experience_Level', 'meal_name'
     ]
     
-    print("--- Preprocessing Log ---")
     for col in categorical_cols:
         if col in df.columns:
-            # Create a NEW encoder for each column
             le = LabelEncoder()
-            # Convert to string to handle any mixed types safe-guard
             df_encoded[col] = le.fit_transform(df[col].astype(str))
             encoders[col] = le
-            print(f"✓ Encoded column: '{col}'")
-        else:
-            print(f"⚠ WARNING: Column '{col}' not found in CSV. It will be skipped.")
-
+    
     return df, df_encoded, encoders
 
+def perform_feature_engineering(df):
+    """
+    Adds advanced features to improve model prediction power.
+    """
+    df_eng = df.copy()
+    
+    # 1. Intensity Index (Calories / Hour)
+    if 'Calories_Burned' in df_eng.columns and 'Session_Duration (hours)' in df_eng.columns:
+        df_eng['Intensity_Index'] = df_eng['Calories_Burned'] / df_eng['Session_Duration (hours)']
+    
+    # 2. Heart Rate Efficiency (BPM per Calorie)
+    if 'Calories_Burned' in df_eng.columns and 'Avg_BPM' in df_eng.columns:
+        df_eng['HR_Efficiency'] = df_eng['Avg_BPM'] / df_eng['Calories_Burned']
+    
+    # 3. Max Heart Rate Est & Utilization
+    if 'Age' in df_eng.columns and 'Avg_BPM' in df_eng.columns:
+        df_eng['Max_HR_Est'] = 220 - df_eng['Age']
+        df_eng['HR_Utilization'] = df_eng['Avg_BPM'] / df_eng['Max_HR_Est']
+
+    # Handle infinite values
+    df_eng.replace([np.inf, -np.inf], 0, inplace=True)
+    df_eng.fillna(0, inplace=True)
+    
+    return df_eng
+
 def save_plot(fig, filename):
-    """Helper to save plots to a directory"""
+    """Saves plot to a 'plots' directory."""
     if not os.path.exists('plots'):
         os.makedirs('plots')
     
     path = os.path.join('plots', filename)
-    fig.savefig(path)
-    print(f"Saved plot to {path}")
+    try:
+        fig.tight_layout()
+    except:
+        pass 
+    fig.savefig(path, dpi=300)
+    print(f"Saved plot: {path}")
     plt.close(fig)
