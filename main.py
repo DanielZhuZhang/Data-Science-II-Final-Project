@@ -83,33 +83,89 @@ def test_conjecture_2_calories_multivariate(df):
     model.fit(X_train, y_train)
     print(f"Multivariate Linear Regression R^2: {model.score(X_test, y_test):.4f}")
 
+from sklearn.tree import plot_tree
+
 def test_conjecture_3_classification(df):
     """
-    Conjecture 3: Predicting Workout Type based on Duration, Calories, and BPM.
+    Conjecture 3: Predicting Workout Type.
+    UPDATED: Now includes a Decision Tree Visualization and Probability Breakdown.
     """
-    print("\n--- CONJECTURE 3: Classifying Workout Type ---")
+    print("\n--- CONJECTURE 3: Classifying Workout Type (Deep Dive) ---")
     features = ['Session_Duration (hours)', 'Calories_Burned', 'Avg_BPM']
     target = 'Workout_Type'
 
+    # 1. Prepare Data
     X = df[features]
     y = df[target]
+    
+    # We need class names for the visualization later
+    # If y is already strings (e.g. 'Yoga'), we are good. 
+    # If encoded, we might need the encoder, but assuming strings based on your file:
+    class_names = df[target].unique().astype(str)
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    rf = RandomForestClassifier(n_estimators=100, random_state=42)
+    # 2. Train Model
+    # We limit max_depth=3 for the visualization so you can actually read the text
+    rf = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=42)
     rf.fit(X_train, y_train)
+    
     acc = accuracy_score(y_test, rf.predict(X_test))
-    
-    print(f"Accuracy (Basic Features): {acc:.4f}")
-    
-    importances = rf.feature_importances_ * 100 
-    
-    fig, ax = plt.subplots(figsize=(12, 7))
-    sns.barplot(x=importances, y=features, ax=ax)
-    ax.set_xlabel('Relative Importance (%)') 
-    ax.set_title('Conjecture 3: Feature Importance (Basic)')
-    plt.tight_layout()
-    save_plot(fig, 'conjecture_3_feature_importance.png')
+    print(f"Model Accuracy: {acc:.2%}")
 
+    # ======================================================
+    # VISUALIZATION 1: THE LOGIC MAP (Single Tree)
+    # ======================================================
+    print("Generating Decision Tree Logic Map...")
+    
+    # Extract the first tree from the forest
+    one_tree = rf.estimators_[0]
+    
+    fig, ax = plt.subplots(figsize=(20, 10))
+    plot_tree(
+        one_tree, 
+        feature_names=features,  
+        class_names=rf.classes_, # Ensure classes align with model
+        filled=True, 
+        rounded=True, 
+        fontsize=10,
+        ax=ax,
+        precision=1
+    )
+    ax.set_title(f'How the Model Decides (Visualizing 1 of 100 Trees)\nAccuracy: {acc:.2%}')
+    
+    # Save it
+    save_plot(fig, 'conjecture_3_logic_map.png')
+    print("Saved 'conjecture_3_logic_map.png' - Open this to see the IF/THEN logic!")
+
+    # ======================================================
+    # DEMO: BEHIND THE CURTAIN (Probability Breakdown)
+    # ======================================================
+    print("\n--- Analyzing a Random Test Case ---")
+    
+    # Pick 1 random person from the test set
+    sample_idx = np.random.randint(0, len(X_test))
+    sample_data = X_test.iloc[[sample_idx]]
+    actual_label = y_test.iloc[sample_idx]
+    
+    # Get the prediction and the PROBABILITY of that prediction
+    prediction = rf.predict(sample_data)[0]
+    probs = rf.predict_proba(sample_data)[0]
+    
+    print(f"Random Student Data:\n{sample_data.to_string(index=False)}")
+    print(f"Actual Workout: {actual_label}")
+    print(f"Predicted:      {prediction}")
+    
+    print("\nHow confident was the model?")
+    # Zip class names with their probabilities
+    for class_name, probability in zip(rf.classes_, probs):
+        bar = "|" * int(probability * 20) # ASCII bar chart
+        print(f"  {class_name.ljust(10)}: {probability:.1%}  {bar}")
+
+    if prediction == actual_label:
+        print("\nResult: CORRECT ✅")
+    else:
+        print("\nResult: INCORRECT ❌")
 def test_conjecture_4_nutrition(df_encoded):
     """
     Conjecture 4: Does meal type or cooking method predict Calories Burned?
@@ -229,14 +285,14 @@ def run_kmeans_discovery(df):
 
 def run_workout_prediction_demo(df_encoded, encoders):
     """
-    Trains a model and allows for 'Live' prediction of workout types.
-    Calculates engineered features (Intensity, HR Efficiency) on the fly for inputs.
+    Trains a model and runs a demo. 
+    INCLUDES: A 'Ground Truth' table to help you pick better demo numbers.
     """
     print("\n================================================")
     print("   FINAL DELIVERABLE: WORKOUT PREDICTION ALG")
     print("================================================")
     
-    # 1. Train the best model (Random Forest with Feature Engineering)
+    # 1. Train the best model
     df_eng = perform_feature_engineering(df_encoded)
     
     features = ['Session_Duration (hours)', 'Calories_Burned', 'Avg_BPM', 
@@ -248,22 +304,34 @@ def run_workout_prediction_demo(df_encoded, encoders):
     
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    # Using a deeper tree for better classification accuracy
     clf = RandomForestClassifier(n_estimators=100, max_depth=12, random_state=42)
     clf.fit(X_train, y_train)
     
     acc = accuracy_score(y_test, clf.predict(X_test))
     print(f"Algorithm Trained. Model Accuracy: {acc:.2%}")
+
+    # ============================================================
+    # STEP 2: PRINT THE "CHEAT SHEET" (Ground Truth Averages)
+    # This tells you exactly what numbers to type to get "HIIT"
+    # ============================================================
+    print("\n--- DATASET GROUND TRUTH (The 'Average' Workout) ---")
     
-    # 2. Define the Helper function to predict for a single person
+    # Create a readable dataframe with decoded names
+    check_df = df_eng.copy()
+    check_df['Workout_Name'] = encoders['Workout_Type'].inverse_transform(check_df['Workout_Type'])
+    
+    # Group by Workout Name and get the mean of key stats
+    averages = check_df.groupby('Workout_Name')[['Session_Duration (hours)', 'Calories_Burned', 'Avg_BPM']].mean()
+    print(averages)
+    print("----------------------------------------------------\n")
+
+    # 3. Define Prediction Helper
     def predict_new_workout(duration, calories, bpm, age=25):
-        # We must manually calculate the engineered features for the input
-        # (Same math as in data_utils.py)
+        # Feature Engineering for Input
         intensity = calories / duration if duration > 0 else 0
         max_hr = 220 - age
         hr_util = bpm / max_hr
         
-        # Create a mini dataframe for the model
         input_data = pd.DataFrame([{
             'Session_Duration (hours)': duration,
             'Calories_Burned': calories,
@@ -273,26 +341,36 @@ def run_workout_prediction_demo(df_encoded, encoders):
             'Age': age
         }])
         
-        # Predict
+        # Get Prediction AND Probability
         pred_code = clf.predict(input_data)[0]
-        # Convert code back to string (e.g., 0 -> 'Yoga')
+        probs = clf.predict_proba(input_data)[0]
+        
         pred_name = encoders['Workout_Type'].inverse_transform([pred_code])[0]
-        return pred_name
+        
+        # Find the confidence score for the winner
+        winner_prob = max(probs)
+        
+        return pred_name, winner_prob
 
-    # 3. Run Demo Scenarios
-    print("\n--- Live Prediction Scenarios ---")
+    # 4. Run Scenarios (Updated with Probabilities)
+    print("--- Live Prediction Scenarios ---")
     
-    # Scenario A: Low intensity, low heart rate
-    pred_a = predict_new_workout(duration=1.0, calories=150, bpm=90)
-    print(f"1. Input: 1.0 hr, 150 cal, 90 BPM  --> Algorithm Predicts: {pred_a}")
+    scenarios = [
+        # (Duration, Calories, BPM)
+        (1.0, 800, 90),   # Light
+        (0.5, 1000, 165),  # Intense Short
+        (1.5, 1600, 145)   # Intense Long
+    ]
     
-    # Scenario B: High intensity, short duration
-    pred_b = predict_new_workout(duration=0.5, calories=400, bpm=165)
-    print(f"2. Input: 0.5 hr, 400 cal, 165 BPM --> Algorithm Predicts: {pred_b}")
-
-    # Scenario C: Long duration, medium intensity
-    pred_c = predict_new_workout(duration=1.5, calories=800, bpm=145)
-    print(f"3. Input: 1.5 hr, 800 cal, 145 BPM --> Algorithm Predicts: {pred_c}")
+    for i, (dur, cal, bpm) in enumerate(scenarios, 1):
+        pred, confidence = predict_new_workout(dur, cal, bpm)
+        print(f"{i}. Input: {dur}hr, {cal}cal, {bpm}BPM")
+        print(f"   -> Prediction: {pred} ({confidence:.1%} confidence)")
+        
+        # If confidence is low, add a note
+        if confidence < 0.5:
+            print("   (Note: Model is uncertain, likely overlapping data)")
+        print("")
 
 # ==========================================
 # MAIN EXECUTION
